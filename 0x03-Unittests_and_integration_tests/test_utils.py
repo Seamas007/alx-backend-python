@@ -1,58 +1,84 @@
 #!/usr/bin/env python3
-"""A github org client
+"""A module for testing the utils module.
 """
-from typing import (
-    List,
-    Dict,
-)
+import unittest
+from typing import Dict, Tuple, Union
+from unittest.mock import patch, Mock
+from parameterized import parameterized
 
 from utils import (
-    get_json,
     access_nested_map,
+    get_json,
     memoize,
 )
 
 
-class GithubOrgClient:
-    """A Githib org client
-    """
-    ORG_URL = "https://api.github.com/orgs/{org}"
+class TestAccessNestedMap(unittest.TestCase):
+    """Tests the `access_nested_map` function."""
+    @parameterized.expand([
+        ({"a": 1}, ("a",), 1),
+        ({"a": {"b": 2}}, ("a",), {"b": 2}),
+        ({"a": {"b": 2}}, ("a", "b"), 2),
+    ])
+    def test_access_nested_map(
+            self,
+            nested_map: Dict,
+            path: Tuple[str],
+            expected: Union[Dict, int],
+            ) -> None:
+        """Tests `access_nested_map`'s output."""
+        self.assertEqual(access_nested_map(nested_map, path), expected)
 
-    def __init__(self, org_name: str) -> None:
-        """Init method of GithubOrgClient"""
-        self._org_name = org_name
+    @parameterized.expand([
+        ({}, ("a",), KeyError),
+        ({"a": 1}, ("a", "b"), KeyError),
+    ])
+    def test_access_nested_map_exception(
+            self,
+            nested_map: Dict,
+            path: Tuple[str],
+            exception: Exception,
+            ) -> None:
+        """Tests `access_nested_map`'s exception raising."""
+        with self.assertRaises(exception):
+            access_nested_map(nested_map, path)
 
-    @memoize
-    def org(self) -> Dict:
-        """Memoize org"""
-        return get_json(self.ORG_URL.format(org=self._org_name))
 
-    @property
-    def _public_repos_url(self) -> str:
-        """Public repos URL"""
-        return self.org["repos_url"]
+class TestGetJson(unittest.TestCase):
+    """Tests the `get_json` function."""
+    @parameterized.expand([
+        ("http://example.com", {"payload": True}),
+        ("http://holberton.io", {"payload": False}),
+    ])
+    def test_get_json(
+            self,
+            test_url: str,
+            test_payload: Dict,
+            ) -> None:
+        """Tests `get_json`'s output."""
+        attrs = {'json.return_value': test_payload}
+        with patch("requests.get", return_value=Mock(**attrs)) as req_get:
+            self.assertEqual(get_json(test_url), test_payload)
+            req_get.assert_called_once_with(test_url)
 
-    @memoize
-    def repos_payload(self) -> Dict:
-        """Memoize repos payload"""
-        return get_json(self._public_repos_url)
 
-    def public_repos(self, license: str = None) -> List[str]:
-        """Public repos"""
-        json_payload = self.repos_payload
-        public_repos = [
-            repo["name"] for repo in json_payload
-            if license is None or self.has_license(repo, license)
-        ]
+class TestMemoize(unittest.TestCase):
+    """Tests the `memoize` function."""
+    def test_memoize(self) -> None:
+        """Tests `memoize`'s output."""
+        class TestClass:
+            def a_method(self):
+                return 42
 
-        return public_repos
-
-    @staticmethod
-    def has_license(repo: Dict[str, Dict], license_key: str) -> bool:
-        """Static: has_license"""
-        assert license_key is not None, "license_key cannot be None"
-        try:
-            has_license = access_nested_map(repo, ("license", "key")) == license_key
-        except KeyError:
-            return False
-        return has_license
+            @memoize
+            def a_property(self):
+                return self.a_method()
+        with patch.object(
+                TestClass,
+                "a_method",
+                return_value=lambda: 42,
+                ) as memo_fxn:
+            test_class = TestClass()
+            self.assertEqual(test_class.a_property(), 42)
+            self.assertEqual(test_class.a_property(), 42)
+            memo_fxn.assert_called_once()
